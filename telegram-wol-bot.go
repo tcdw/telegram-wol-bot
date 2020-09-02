@@ -5,8 +5,10 @@ import (
 	"fmt"
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/jessevdk/go-flags"
+	"github.com/mdlayher/wol"
 	"io/ioutil"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,12 +17,13 @@ import (
 type Config struct {
 	Token string
 	ChatID float64
-	Computers []Computers
+	Computers []Computer
 }
 
-type Computers struct {
+type Computer struct {
 	Name string
 	Mac string
+	IP string
 }
 
 func fatalError(err error) {
@@ -88,12 +91,13 @@ func runBot(config Config) {
 <code>/list</code> - Show a list of computers`)
 			msg.ParseMode = "HTML"
 			_, _ = bot.Send(msg)
+			continue
 		}
 
 		if update.Message.Text[0:5] == "/list" {
-			multi := ""
+			multi := "s"
 			if len(config.Computers) == 1 {
-				multi = "s"
+				multi = ""
 			}
 			var msgText strings.Builder
 			msgText.WriteString(fmt.Sprintf("<b>%d computer%s may be waked:</b>\n\n", len(config.Computers), multi))
@@ -103,11 +107,43 @@ func runBot(config Config) {
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText.String())
 			msg.ParseMode = "HTML"
 			_, _ = bot.Send(msg)
+			continue
 		}
 
-		// log.Printf("[%s] %s", update.Message.From.UserName, update.Message.Text)
-		// msg := tgbotapi.NewMessage(update.Message.Chat.ID, update.Message.Text)
-		// msg.ReplyToMessageID = update.Message.MessageID
-		// _, _ = bot.Send(msg)
+		if update.Message.Text[0:6] == "/boot " {
+			target := update.Message.Text[6:]
+			var item *Computer
+			for _, e := range config.Computers {
+				if e.Name == target {
+					item = &e
+					break
+				}
+			}
+			if item == nil {
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Unknown machine. Use <code>/list</code> to see a list of computers.")
+				msg.ParseMode = "HTML"
+				_, _ = bot.Send(msg)
+				continue
+			}
+			err = wake(item.IP, item.Mac, []byte(""))
+			result := "Boot command sent successfully."
+			if err != nil {
+				log.Printf("Unable to send boot command: %s", err.Error())
+				result = "Unable to handle that. Internal server error."
+			}
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
+			_, _ = bot.Send(msg)
+			continue
+		}
 	}
+}
+
+func wake(addr string, tar string, password []byte) error {
+	target, err := net.ParseMAC(tar)
+	c, err := wol.NewClient()
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.WakePassword(addr, target, password)
 }
