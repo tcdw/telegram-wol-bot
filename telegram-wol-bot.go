@@ -3,15 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/jessevdk/go-flags"
 	"github.com/mdlayher/wol"
+	tb "gopkg.in/tucnak/telebot.v2"
 	"io/ioutil"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -64,82 +65,78 @@ func main() {
 }
 
 func runBot(config Config) {
-	bot, err := tgbotapi.NewBotAPI(config.Token)
+	b, err := tb.NewBot(tb.Settings{
+		Token: config.Token,
+		Poller: &tb.LongPoller{Timeout: 10 * time.Second},
+	})
+
 	if err != nil {
-		log.Panic(err)
+		log.Fatal(err)
+		return
 	}
 
-	bot.Debug = true
-
-	log.Printf("Authorized on account %s", bot.Self.UserName)
-
-	u := tgbotapi.NewUpdate(0)
-	u.Timeout = 60
-
-	updates, err := bot.GetUpdatesChan(u)
-
-	for update := range updates {
-		if update.Message == nil {
-			continue
+	b.Handle("/start", func(m *tb.Message) {
+		if !verify(config.ChatID, m) {
+			return
 		}
-		if update.Message.Chat.ID != int64(config.ChatID) {
-			continue
-		}
+		_, _ = b.Send(m.Sender, "This bot is started!")
+	})
 
-		if update.Message.Text[0:5] == "/help" {
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, `<code>/boot &lt;machine&gt;</code> - Boot the computer user requested
-<code>/list</code> - Show a list of computers`)
-			msg.ParseMode = "HTML"
-			_, _ = bot.Send(msg)
-			continue
+	b.Handle("/help", func(m *tb.Message) {
+		if !verify(config.ChatID, m) {
+			return
 		}
+		_, _ = b.Send(m.Sender, `<code>/boot &lt;machine&gt;</code> - Boot the computer user requested
+<code>/list</code> - Show a list of computers`, &tb.SendOptions{ParseMode: "HTML"})
+	})
 
-		if update.Message.Text[0:5] == "/list" {
-			multi := "s"
-			if len(config.Computers) == 1 {
-				multi = ""
-			}
-			var msgText strings.Builder
-			msgText.WriteString(fmt.Sprintf("<b>%d computer%s may be waked:</b>\n\n", len(config.Computers), multi))
-			for _, e := range config.Computers {
-				msgText.WriteString(fmt.Sprintf("<code>%s</code>\n", e.Name))
-			}
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, msgText.String())
-			msg.ParseMode = "HTML"
-			_, _ = bot.Send(msg)
-			continue
+	b.Handle("/list", func(m *tb.Message) {
+		if !verify(config.ChatID, m) {
+			return
 		}
+		multi := "s"
+		if len(config.Computers) == 1 {
+			multi = ""
+		}
+		var msgText strings.Builder
+		msgText.WriteString(fmt.Sprintf("<b>%d computer%s may be waked:</b>\n\n", len(config.Computers), multi))
+		for _, e := range config.Computers {
+			msgText.WriteString(fmt.Sprintf("<code>%s</code>\n", e.Name))
+		}
+		_, _ = b.Send(m.Sender, msgText.String(), &tb.SendOptions{ParseMode: "HTML"})
+	})
 
-		if update.Message.Text[0:6] == "/boot " {
-			target := update.Message.Text[6:]
-			var item *Computer
-			for _, e := range config.Computers {
-				if e.Name == target {
-					item = &e
-					break
-				}
-			}
-			if item == nil {
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Unknown machine. Use <code>/list</code> to see a list of computers.")
-				msg.ParseMode = "HTML"
-				_, _ = bot.Send(msg)
-				continue
-			}
-			var ip string = "255.255.255.255:9"
-			if item.IP != nil {
-				ip = *item.IP
-			}
-			err = wake(ip, item.Mac, []byte(""))
-			result := "Boot command sent successfully."
-			if err != nil {
-				log.Printf("Unable to send boot command: %s", err.Error())
-				result = "Unable to handle that. Internal server error."
-			}
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, result)
-			_, _ = bot.Send(msg)
-			continue
+	b.Handle("/boot", func(m *tb.Message) {
+		if !verify(config.ChatID, m) {
+			return
 		}
-	}
+		target := m.Payload
+		var item *Computer
+		for _, e := range config.Computers {
+			if e.Name == target {
+				item = &e
+				break
+			}
+		}
+		if item == nil {
+			_, _ = b.Send(m.Sender, "Unknown machine. Use <code>/list</code> to see a list of computers.",
+				&tb.SendOptions{ParseMode: "HTML"})
+			return
+		}
+		var ip string = "255.255.255.255:9"
+		if item.IP != nil {
+			ip = *item.IP
+		}
+		err = wake(ip, item.Mac, []byte(""))
+		result := "Boot command sent successfully."
+		if err != nil {
+			result = fmt.Sprintf("Unable to send boot command: %s", err.Error())
+		}
+		_, _ = b.Send(m.Sender, result)
+	})
+
+	log.Println("Starting bot service")
+	b.Start()
 }
 
 func wake(addr string, tar string, password []byte) error {
@@ -150,4 +147,13 @@ func wake(addr string, tar string, password []byte) error {
 	}
 	defer c.Close()
 	return c.WakePassword(addr, target, password)
+}
+
+func verify(chatID float64, m *tb.Message) bool {
+	if int64(chatID) != m.Chat.ID {
+		log.Printf("Chat ID %d is not authorized, skipping\n", m.Chat.ID)
+		return false
+	}
+	log.Printf("User %d issued command: %s\n", m.Sender.ID, m.Text)
+	return true
 }
