@@ -15,15 +15,15 @@ import (
 )
 
 type Config struct {
-	Token string
-	ChatID float64
-	Computers []Computer
+	Token string `json:"token"`
+	ChatID float64 `json:"chatID"`
+	Computers []Computer `json:"computers"`
 }
 
 type Computer struct {
-	Name string
-	Mac string
-	IP string
+	Name string `json:"name"`
+	Mac string `json:"mac"`
+	IP *string `json:"broadcast"`
 }
 
 func fatalError(err error) {
@@ -125,7 +125,11 @@ func runBot(config Config) {
 				_, _ = bot.Send(msg)
 				continue
 			}
-			err = wake(item.IP, item.Mac, []byte(""))
+			var ip string = "255.255.255.255:9"
+			if item.IP != nil {
+				ip = *item.IP
+			}
+			err = wake(ip, item.Mac, []byte(""))
 			result := "Boot command sent successfully."
 			if err != nil {
 				log.Printf("Unable to send boot command: %s", err.Error())
