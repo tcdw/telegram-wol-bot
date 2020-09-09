@@ -27,7 +27,8 @@
 ```
 
 3. 在 BIOS 里启动你家电脑的 WoL 功能
-4. 用 `telegram-wol-bot -c 你的配置文件.json` 把 bot 跑起来
+4. 用 `telegram-wol-bot -c 你的配置文件.json` 把 bot 跑起来  
+如果需要使用 http 代理，直接指定环境变量 `HTTP_PROXY=http://blahblah` 即可
 5. 测试无误后，可以用 pm2 等工具让 bot 持续运行
 6. 开始享用吧！
 
