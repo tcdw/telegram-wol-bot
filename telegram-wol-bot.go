@@ -25,6 +25,7 @@ type Computer struct {
 	Name string `json:"name"`
 	Mac string `json:"mac"`
 	IP *string `json:"broadcast"`
+	Password *string `json:"password"`
 }
 
 func fatalError(err error) {
@@ -127,7 +128,11 @@ func runBot(config Config) {
 		if item.IP != nil {
 			ip = *item.IP
 		}
-		err = wake(ip, item.Mac, []byte(""))
+		var password string = ""
+		if item.Password != nil {
+			password = *item.Password
+		}
+		err = wake(ip, item.Mac, []byte(password))
 		result := "Boot command sent successfully."
 		if err != nil {
 			result = fmt.Sprintf("Unable to send boot command: %s", err.Error())
