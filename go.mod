@@ -1,4 +1,4 @@
-module telegram-wol-bot
+module github.com/tcdw/telegram-wol-bot
 
 go 1.15
 
